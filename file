@@ -1,0 +1,177 @@
+import io
+import time #파일 명
+import pandas as pd
+import tensorflow
+import keras
+from keras.models import *
+import tensorflow as tf
+
+from tkinter import messagebox
+
+
+def creative_file():
+    print("creative log file!")
+    file_name = time.strftime('%Y_%m_%d_%H_%M_%S', time.localtime(time.time()))
+    file_name = file_name + '.csv'
+
+    log_file = open(file_name, mode = 'w')
+    copy_file = open('final_log_test.csv', mode = 'r')
+
+    copy_data = copy_file.read()
+
+    log_file.write(copy_data)
+
+    log_file.close()
+    copy_file.close()
+
+    return file_name
+
+
+def Scan_portscan(input_data):  # input_data : 검사할 데이터셋
+    # 포트스캔 검사
+    print("load portscan model!")
+    portscan_model = tf.keras.models.load_model('gru_portscan_8_32.h5')
+    portscan_model.summary()
+    x = input_data.iloc[:, [10, 11, 12, 13, 14, 16, 17, 18, 20, 21, 40, 41, 42, 43, 44, 45, 46, 47, 48, 52, 58, 59, 60, 61, 68, 69, 70, 71, 72, 73, 74, 75]]
+    print("scan portscan!")
+    y = portscan_model.predict(x)
+    #7 25 31 74
+    portscan_result = y.sum(axis=1) / 32
+    # print(portscan_result)
+
+    return portscan_result
+
+
+def Scan_hulkdos(input_data):
+    # 헐크도스 검사
+    print("load hulkdos model!")
+    hulkdos_model = tf.keras.models.load_model('gru_hulkdos_8_32.h5')
+    hulkdos_model.summary()
+    x = input_data.iloc[:,[4,5,8,10,11,12,13,15,17,20,21,28,42,45,59,61,71,73,74]]
+    print("scan hulkdos!")
+    y = hulkdos_model.predict(x)
+
+    hulkdos_result = y.sum(axis=1) / 32
+
+    return hulkdos_result
+
+
+def Scan_ddos(input_data):
+    # 디도스 검사
+    print("load ddos model!")
+    ddos_model = tf.keras.models.load_model('gru_ddos_8_32.h5')
+    ddos_model.summary()
+    x = input_data.iloc[:, [10, 16, 22, 23, 27, 31, 32, 33, 34, 35, 42, 59, 60, 71]]
+    print("scan ddos!")
+    y = ddos_model.predict(x)
+
+    ddos_result = y.sum(axis=1) / 32
+
+    return ddos_result
+
+
+def find_attack(input_portres, input_hulkres, input_ddosres):
+    num = len(input_portres)
+    reference_value = 0.9  # 기준값
+
+    temp_attack = [0]
+    temp_attack.clear()
+
+    all_res = [0]
+    all_res.clear()
+
+    col = 4
+
+    for i in range(num):
+        if input_portres[i] >= reference_value or input_hulkres[i] >= reference_value or input_ddosres[i] >= reference_value:
+            temp_attack.append(i)
+
+
+    attack_len = len(temp_attack)
+
+    for i in range(attack_len):
+        all_res += [[0] * col]
+
+    for i in range(attack_len):
+        all_res[i][0] = temp_attack[i]
+        all_res[i][1] = input_portres[all_res[i][0]]
+        all_res[i][2] = input_hulkres[all_res[i][0]]
+        all_res[i][3] = input_ddosres[all_res[i][0]]
+
+    return all_res
+
+
+def attack_log(input_number, input_data):
+    # 공격로그 작성
+    print("write log!")
+    file_name = creative_file()
+    log_text = open(file_name, mode = "a")
+
+    temp_len = len(input_number)
+
+    if temp_len == 0:
+        return
+
+    temp_data = [0] * 86
+
+    for i in range(temp_len):
+        num = int(input_number[i][0])
+        temp_feature = input_data.iloc[num]
+        for n in range(85):
+            log_text.write(str(temp_feature[n]))
+            log_text.write(',')
+
+        for j in range(3):
+            log_text.write(str(input_number[i][j+1]))
+            log_text.write(',')
+
+        log_text.write('\n')
+
+    log_text.close()
+
+
+def count_attack(attack_data, attack_num):
+    #p1 h2 d3
+    attack_len = len(attack_data)
+
+    res = 0
+
+    for i in range(attack_len):
+        if attack_data[i][attack_num] >= 0.9:
+            res = res + 1
+
+    return res
+
+
+def alert_window(attack_data):
+    portscan_count = count_attack(attack_data, 1)
+    hulkdos_count = count_attack(attack_data, 2)
+    ddos_count = count_attack(attack_data, 3)
+    temp = "포트스캔 개수"
+    temp = temp + str(portscan_count) + "개\n"
+    temp = temp + "헐크도스 개수 "
+    temp = temp + str(hulkdos_count) + "개\n"
+    temp = temp + "디도스 개수 "
+    temp = temp + str(ddos_count) + "개"
+
+    messagebox.showinfo("경고",temp)
+
+
+def Scan_attack(input_x):
+    # 전체 취합후 리턴
+    res_portscan = Scan_portscan(input_x)
+    res_hulkdos = Scan_hulkdos(input_x)
+    res_ddos = Scan_ddos(input_x)
+
+    attack = find_attack(res_portscan, res_hulkdos, res_ddos)
+
+    attack_log(attack, input_x)
+
+    alert_window(attack)
+
+
+test_data = pd.read_csv('attack+ben_test.csv', encoding='cp949')
+
+
+Scan_attack(test_data)
+print("end program!")
